@@ -1,7 +1,13 @@
 package com.example.telegramcallnotifier;
 
 import android.content.Context;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.os.Build;
+import android.os.PowerManager;
 import android.util.Log;
+
+import androidx.core.app.NotificationCompat;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -79,6 +85,12 @@ public class TelegramSender {
                 os.close();
 
                 int responseCode = conn.getResponseCode();
+                if (responseCode == 200 && finalType.equals("ping")) {
+                    Log.d("PING", "Ping success, triggering local notification and wake");
+
+                    showPingNotification();
+                    wakeDeviceFor20Seconds();
+                }
                 String responseBody = readBody(conn, responseCode >= 200 && responseCode < 300);
 
                 CustomExceptionHandler.log(context, "Server response code=" + responseCode);
@@ -102,6 +114,54 @@ public class TelegramSender {
                 }
             }
         });
+    }
+
+    private void showPingNotification() {
+        NotificationManager manager =
+                (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+
+        if (manager == null) {
+            return;
+        }
+
+        String channelId = "ping_alive_channel";
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    channelId,
+                    "Ping Alive",
+                    NotificationManager.IMPORTANCE_HIGH
+            );
+            manager.createNotificationChannel(channel);
+        }
+
+        NotificationCompat.Builder builder =
+                new NotificationCompat.Builder(context, channelId)
+                        .setSmallIcon(android.R.drawable.stat_notify_sync)
+                        .setContentTitle("Device Alive")
+                        .setContentText("Ping OK - server responded")
+                        .setPriority(NotificationCompat.PRIORITY_HIGH)
+                        .setAutoCancel(true);
+
+        manager.notify(4001, builder.build());
+    }
+
+    private void wakeDeviceFor20Seconds() {
+        PowerManager pm =
+                (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+
+        if (pm != null) {
+            PowerManager.WakeLock wl =
+                    pm.newWakeLock(
+                            PowerManager.FULL_WAKE_LOCK
+                                    | PowerManager.ACQUIRE_CAUSES_WAKEUP
+                                    | PowerManager.ON_AFTER_RELEASE,
+                            "TelegramCallNotifier:PingWakeLock"
+                    );
+
+            Log.d("PING", "Device wake for 20 seconds");
+            wl.acquire(20 * 1000L);
+        }
     }
 
     private static String readBody(HttpURLConnection conn, boolean successStream) {

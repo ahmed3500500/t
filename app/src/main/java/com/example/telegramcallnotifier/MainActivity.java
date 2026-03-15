@@ -4,7 +4,6 @@ import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.Context;
-import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -47,16 +46,6 @@ public class MainActivity extends AppCompatActivity {
         Thread.setDefaultUncaughtExceptionHandler(exceptionHandler);
 
         setContentView(R.layout.activity_main);
-
-        Intent reportServiceIntent = new Intent(this, ReportService.class);
-        reportServiceIntent.setAction("START_FOREGROUND_SERVICE");
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(reportServiceIntent);
-        } else {
-            startService(reportServiceIntent);
-        }
-
         AlarmScheduler.scheduleNext(this, AlarmScheduler.TEST_INTERVAL_MS);
 
         telegramSender = new TelegramSender(this);
@@ -242,6 +231,7 @@ public class MainActivity extends AppCompatActivity {
                 startService(serviceIntent);
             }
 
+            AlarmScheduler.scheduleNext(this, AlarmScheduler.TEST_INTERVAL_MS);
             new android.os.Handler().postDelayed(this::updateUI, 500);
         } catch (Throwable e) {
             e.printStackTrace();

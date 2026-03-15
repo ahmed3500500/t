@@ -15,7 +15,7 @@ public class AlarmScheduler {
         AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
 
         Intent intent = new Intent(context, AlarmReceiver.class);
-        intent.setAction("WAKE_AND_REPORT");
+        intent.setAction("PERIODIC_REPORT");
 
         PendingIntent pendingIntent = PendingIntent.getBroadcast(
                 context,
@@ -52,7 +52,7 @@ public class AlarmScheduler {
         AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
 
         Intent intent = new Intent(context, AlarmReceiver.class);
-        intent.setAction("WAKE_AND_REPORT");
+        intent.setAction("PERIODIC_REPORT");
 
         PendingIntent pendingIntent = PendingIntent.getBroadcast(
                 context,

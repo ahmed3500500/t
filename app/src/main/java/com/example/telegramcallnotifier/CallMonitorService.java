@@ -58,28 +58,10 @@ public class CallMonitorService extends Service {
     private String pendingNumber = null;
     private int pendingSimSlot = -1;
 
-    private final Handler pingHandler = new Handler(Looper.getMainLooper());
-    private Runnable pingRunnable;
-
-    // Battery & Status Monitoring
+    // Battery Monitoring
     private BatteryReceiver batteryReceiver;
     private int lastBatteryLevel = -1;
     private boolean lastChargingState = false;
-    private static final long PERIODIC_INTERVAL = 60 * 60 * 1000;
-    private static final String ACTION_SEND_PERIODIC_REPORT = "com.example.telegramcallnotifier.ACTION_SEND_PERIODIC_REPORT";
-    
-    private final Handler periodicHandler = new Handler(Looper.getMainLooper());
-    private final Runnable periodicRunnable = new Runnable() {
-        @Override
-        public void run() {
-            try {
-                sendPeriodicStatusReport();
-            } finally {
-                periodicHandler.postDelayed(this, PERIODIC_INTERVAL);
-                scheduleNextReport();
-            }
-        }
-    };
 
     @Override
     public void onCreate() {
@@ -89,7 +71,6 @@ public class CallMonitorService extends Service {
         
         // Log Service Start (Local log only)
         CustomExceptionHandler.log(this, "Service onCreate");
-        startPingTask();
 
         // Acquire WakeLock
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
@@ -141,20 +122,10 @@ public class CallMonitorService extends Service {
         // Initialize Battery & Status Monitoring
         telegramSender.sendStatusMessage("Service started");
         startBatteryMonitoring();
-        startPeriodicReporting();
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null && ACTION_SEND_PERIODIC_REPORT.equals(intent.getAction())) {
-            sendPeriodicStatusReport();
-            restartInProcessPeriodicLoop();
-            scheduleNextReport();
-            return START_STICKY;
-        }
-
-        restartInProcessPeriodicLoop();
-        scheduleNextReport();
         return START_STICKY;
     }
 
@@ -459,40 +430,6 @@ public class CallMonitorService extends Service {
         return -1;
     }
 
-    private void wakeDeviceFor20Seconds() {
-        try {
-            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            PowerManager.WakeLock wakeLock = pm.newWakeLock(
-                    PowerManager.FULL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP | PowerManager.ON_AFTER_RELEASE,
-                    "TelegramCallNotifier:WakeLock"
-            );
-
-            wakeLock.acquire(20000);
-            CustomExceptionHandler.log(this, "Device wake for 20 seconds");
-        } catch (Exception e) {
-            CustomExceptionHandler.log(this, "wakeDevice error: " + e.getMessage());
-        }
-    }
-
-    private void startPingTask() {
-        pingRunnable = new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    CustomExceptionHandler.log(CallMonitorService.this, "Ping server");
-                    telegramSender.sendPing();
-                    wakeDeviceFor20Seconds();
-                } catch (Exception e) {
-                    CustomExceptionHandler.log(CallMonitorService.this, "Ping error: " + e.getMessage());
-                }
-
-                pingHandler.postDelayed(this, 10 * 60 * 1000);
-            }
-        };
-
-        pingHandler.postDelayed(pingRunnable, 10 * 60 * 1000);
-    }
-
     private void attemptAutoAnswer() {
         try {
             CustomExceptionHandler.log(this, "attemptAutoAnswer() START");
@@ -592,74 +529,6 @@ public class CallMonitorService extends Service {
         }
     }
 
-    private void restartInProcessPeriodicLoop() {
-        periodicHandler.removeCallbacks(periodicRunnable);
-        periodicHandler.postDelayed(periodicRunnable, PERIODIC_INTERVAL);
-    }
-
-    private void startPeriodicReporting() {
-        restartInProcessPeriodicLoop();
-        scheduleNextReport();
-    }
-
-    private void scheduleNextReport() {
-        android.app.AlarmManager alarmManager = (android.app.AlarmManager) getSystemService(Context.ALARM_SERVICE);
-        Intent intent = new Intent(this, CallMonitorService.class);
-        intent.setAction(ACTION_SEND_PERIODIC_REPORT);
-        
-        PendingIntent pendingIntent = PendingIntent.getService(this, 0, intent, 
-            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
-        long triggerAtMillis = System.currentTimeMillis() + PERIODIC_INTERVAL;
-
-        if (alarmManager == null) return;
-
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
-                alarmManager.setAndAllowWhileIdle(
-                        android.app.AlarmManager.RTC_WAKEUP,
-                        triggerAtMillis,
-                        pendingIntent
-                );
-                return;
-            }
-
-            if (Build.VERSION.SDK_INT >= 23) {
-                alarmManager.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
-            } else if (Build.VERSION.SDK_INT >= 19) {
-                alarmManager.setExact(android.app.AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
-            } else {
-                alarmManager.set(android.app.AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
-            }
-        } catch (SecurityException e) {
-            try {
-                alarmManager.setAndAllowWhileIdle(
-                        android.app.AlarmManager.RTC_WAKEUP,
-                        triggerAtMillis,
-                        pendingIntent
-                );
-            } catch (Exception inner) {
-                inner.printStackTrace();
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void stopPeriodicReporting() {
-        periodicHandler.removeCallbacks(periodicRunnable);
-
-        android.app.AlarmManager alarmManager = (android.app.AlarmManager) getSystemService(Context.ALARM_SERVICE);
-        Intent intent = new Intent(this, CallMonitorService.class);
-        intent.setAction(ACTION_SEND_PERIODIC_REPORT);
-        PendingIntent pendingIntent = PendingIntent.getService(this, 0, intent, 
-            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            
-        if (alarmManager != null) {
-            alarmManager.cancel(pendingIntent);
-        }
-    }
-
     private class BatteryReceiver extends BroadcastReceiver {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -716,19 +585,6 @@ public class CallMonitorService extends Service {
         if (extraInfo != null && !extraInfo.isEmpty()) {
             msg.append(extraInfo).append("\n");
         }
-        msg.append("⏰ Time: ").append(time);
-        
-        telegramSender.sendStatusMessage(msg.toString());
-    }
-
-    private void sendPeriodicStatusReport() {
-        String time = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
-        
-        StringBuilder msg = new StringBuilder();
-        msg.append("📊 Periodic Status Report\n");
-        msg.append(getBatteryInfoString()).append("\n");
-        msg.append(getNetworkStatusString()).append("\n");
-        msg.append(getScreenStatusString()).append("\n");
         msg.append("⏰ Time: ").append(time);
         
         telegramSender.sendStatusMessage(msg.toString());
@@ -834,10 +690,6 @@ public class CallMonitorService extends Service {
         super.onDestroy();
         
         stopBatteryMonitoring();
-        stopPeriodicReporting();
-        if (pingRunnable != null) {
-            pingHandler.removeCallbacks(pingRunnable);
-        }
 
         // Removed callReceiver unregister
         if (telephonyManager != null) {
